@@ -73,6 +73,10 @@ struct RGB_struct{
   int b;
 };
 
+// variables to keep track of the button state
+bool currentState;
+bool previousState = 1;
+
 // the different colours for the ledrings
 RGB_struct red = {255,0,0};
 RGB_struct orange = {255,40,0}; 
@@ -100,9 +104,10 @@ Then it changes the state in the outgoing data so this can be sent when the time
 Lastly it writes the LED on the button high showcasing the pedestrians that there request has been taken
 */
 void checkButton(){
-  bool currentButtonState = digitalRead(button);
+  currentState = digitalRead(button);
 
-  if (currentButtonState == LOW && state == 1) {
+  if(previousState != currentState && state == 1){
+    previousState = currentState;
     state = 2;
     outgoingData.buttonState = 0;
     sendData();
