@@ -43,7 +43,7 @@ unsigned long startTime = 0;
 int state = 1;
 
 // MAC address off the other esp32
-uint8_t peerAddress[] = {0x38, 0x18, 0x2b, 0x80, 0x52, 0xc8};
+uint8_t peerAddress[] = {0xc8, 0xf0, 0x9e, 0xf3, 0xde, 0x24};
 
 // making new datatypes for the messages
 typedef struct struct_incoming {
