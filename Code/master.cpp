@@ -1,5 +1,5 @@
 /*
-This is the code for the esp32 which acts as the master
+This is the code for the esp32 which acts as the MASTER 
 This code decides when the lights change and instructs the other esp32
 
 Written by:
@@ -17,197 +17,159 @@ Julian Bouman
 #include <WiFi.h>
 
 // 1 for on, 0 for off
-#define DEBUG 0
-
-// RGB ring amount of LEDs
-#define NUM_LEDS 16
+#define DEBUG 1
 
 // button pins
 #define button 33
 #define buttonLed 25
 
-// pins for the bike lights
-#define greenBike 14   // (3) on the trafficlight
-#define orangeBike 32  // (2) on the trafficlight
-#define redBike 13     // (1) on the trafficlight
-
-// pins for the pedestrian lights
+// led ring pins
+#define greenBike 14         // (3) on the trafficlight
+#define orangeBike 32        // (2) on the trafficlight
+#define redBike 13           // (1) on the trafficlight
 #define greenPedestrian 26   // (5) on the trafficlight
 #define redPedestrian 27     // (4) on the trafficlight
 
-//! look into not needing these
-// variables to keep track of initialization of case 1 and 4
-bool case1Initialized;
-bool case4Initialized;
+// RGB ring amount of LEDs
+#define NUM_LEDS 16
 
-// variable for the timer
-unsigned long startTime = 0;
-
-// variable for the switch case
-int state = 1;
-
-// MAC address off the other esp32
+// MAC address of the Slave ESP32
 static uint8_t peerAddress[] = {0xc8, 0xf0, 0x9e, 0xf3, 0xde, 0x24};
 
-// making new datatypes for the messages
-struct struct_incoming {
-  bool buttonState;
-};
-
+// struct for the outgoing data
+// state is also used as global variable to keep track of the traffic light state
 struct struct_outgoing {
   bool buttonState;
   int state;
 };
 
-// variables for messaging the other esp32
-// struct_incoming incomingData;
-struct_outgoing outgoingData = {1, 1};
+// struct for the incoming data
+struct struct_incoming {
+  bool buttonState;
+};
 
-// arrays for the ledrings each 1 array
-CRGB ledsgb[NUM_LEDS];
-CRGB ledsob[NUM_LEDS];
-CRGB ledsrb[NUM_LEDS];
-CRGB ledsgp[NUM_LEDS];
-CRGB ledsrp[NUM_LEDS];
-
-// makes a datatype to mix different colours for the ledrings
+// struct to store RGB values
 struct RGB_struct{
   int r;
   int g;
   int b;
 };
 
-// variables to keep track of the button state
-bool currentState;
-bool previousState = 1;
+// variables for messaging the other esp32
+struct_incoming incomingData;
+struct_outgoing outgoingData = {1, 1};
+
+// setup the individual LED rings
+CRGB ledRings[5][NUM_LEDS];
+enum LedRingIndex {
+  RED_BIKE,
+  ORANGE_BIKE,
+  GREEN_BIKE,
+  RED_PEDESTRIAN,
+  GREEN_PEDESTRIAN
+};
 
 // the different colours for the ledrings
 RGB_struct red = {255,0,0};
 RGB_struct orange = {255,40,0}; 
 RGB_struct green = {0,255,0};
-RGB_struct blank = {0,0,0};
+RGB_struct off = {0,0,0};
 
-/*
-The sendData() function sends the data stored in outgoingData to the other esp32
-After doing so the esp_now_send() calls the OnDataSent() function
-*/
+// variables to keep track of the button state
+bool currentState;
+bool previousState = 1;
+
+// variables to keep track of initialization of case 1 and 4
+bool case1Initialized;
+bool case4Initialized;
+
+// variables for the timer and timings
+unsigned long startTime = 0;
+unsigned long case1Duration = 25000;    // 25 seconds
+unsigned long case2Duration = 5000;     // 5 seconds
+unsigned long case3Duration = 2000;     // 2 seconds
+unsigned long case4Duration = 10000;    // 10 seconds
+unsigned long case5Duration = 10500;    // 10.5 seconds
+unsigned long blinkingDuration = 3000; // 3 seconds for blinking
+unsigned long blinkingInterval = 500; // 0.5 seconds for each blink
+unsigned long startDebugTime = 0;
+unsigned long debugInterval = 1000; // print every second in the loop
+
+// function to send button state and traffic light state to the other esp32
 void sendData(){
   esp_now_send(peerAddress, (uint8_t *)&outgoingData, sizeof(outgoingData));
 }
 
-/*
-The checkButton() function checks if the pedestrian button is pressed
+// function to be called after sending data that prints the status of the last sent packet
+void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
+  if (DEBUG) {
+    Serial.print("Last Packet Send Status: ");
+    Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail");
+  }
+}
 
-If the pedestrian button has been pressed and the bikes currently have a green light
-the function will change the state of the trafficlight so that pedestrians can cross after waiting a few seconds
+// function to be called when data is received from the other esp32
+// changes the state of the trafficlights and the button LED
+// using ArduinoIDE: (const uint8_t *mac_addr, const uint8_t *incomingDataBytes, int len)
+// using PlatformIO: (const esp_now_recv_info_t *recv_info, const uint8_t *incomingDataBytes, int len)
+void OnDataRecv(const esp_now_recv_info_t *recv_info, const uint8_t *incomingDataBytes, int len) {
+  outgoingData.state = 2;
+  digitalWrite(buttonLed, HIGH);  
+  if (DEBUG) {
+    Serial.println("Data received from slave");
+  }
+}
 
-After changing it's own state it changes the buttonState for the outgoing data and sends this data to the other esp32
-
-Then it changes the state in the outgoing data so this can be sent when the time is there
-
-Lastly it writes the LED on the button high showcasing the pedestrians that there request has been taken
-*/
+// checks if the button is pressed
+// if it is pressed the trafficlight state changes and the button led is turned on 
+// also sends the data to the other esp32
 void checkButton(){
   currentState = digitalRead(button);
 
-  if(previousState != currentState && state == 1){
+  if(previousState != currentState && outgoingData.state == 1){
     previousState = currentState;
-    state = 2;
     outgoingData.buttonState = 0;
-    sendData();
     outgoingData.state = 2;
+    sendData();
     digitalWrite(buttonLed, HIGH);
   }
 }
 
-/*
-The function OnDataSent() is called after the sendData function is done
-All this does is check if the package has been delivered succesfully and report this to the terminal
-*/
-void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
-  Serial.print("Last Packet Send Status: ");
-  Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail");
-}
-
-/*
-The OnDataRecv() function will be called whenever the other esp32 sends us data
-When it does so, it will always be to say that his button has been pressed
-
-Upon being called this function will change the state of the trafficlight so that pedestrians can cross after waiting a few seconds
-
-Then it changes the state in the outgoing data so this can be sent when the time is there
-
-Lastly it writes the LED on the button high showcasing the pedestrians that there request has been taken
-*/
-void OnDataRecv(const uint8_t *mac_addr, const uint8_t *incomingDataBytes, int len) {
-  state = 2;
-  outgoingData.state = 2;
-  digitalWrite(buttonLed, HIGH);  
-}
-
-/*
-The changeLeds() function takes a RGB_struct and an int
-it uses the int to decide which ring to change colour of
-
-After getting to the right ring it changes every datalocation in the array to the right rgb mix.
-When it is done with that the function calls the show() function which makes all the LEDs switch to the colour in their array spot
-*/
-void changeLeds(RGB_struct color, int ring) {
-  switch(ring){
-    case 1:
-      for (int i = 0; i < NUM_LEDS; i++) {
-        ledsgb[i] = CRGB(color.r, color.g, color.b);
-      }
-      FastLED.show();
-      break;
-
-    case 2:
-      for (int i = 0; i < NUM_LEDS; i++) {
-        ledsob[i] = CRGB(color.r, color.g, color.b);
-      }
-      FastLED.show();
-      break;
-
-    case 3:
-      for (int i = 0; i < NUM_LEDS; i++) {
-        ledsrb[i] = CRGB(color.r, color.g, color.b);
-      }
-      FastLED.show();
-      break;
-
-    case 4:
-      for (int i = 0; i < NUM_LEDS; i++) {
-        ledsgp[i] = CRGB(color.r, color.g, color.b);
-      }
-      FastLED.show();
-      break;
-
-    case 5:
-      for (int i = 0; i < NUM_LEDS; i++) {
-        ledsrp[i] = CRGB(color.r, color.g, color.b);
-      }
-      FastLED.show();
-      break;
+// function to change the color of the LEDs
+void changeLeds(RGB_struct colors[]) {
+  for (int ringIndex = 0; ringIndex < 5; ringIndex++) {
+    CRGB *leds = ledRings[ringIndex];
+    for (int i = 0; i < NUM_LEDS; i++) {
+      leds[i] = CRGB(colors[ringIndex].r, colors[ringIndex].g, colors[ringIndex].b);
+    }
+    FastLED.show();
+    if (DEBUG) {
+      Serial.println("-------------------");
+      Serial.print("LED Ring ");
+      Serial.print(ringIndex);
+      Serial.print(": ");
+      Serial.print(colors[ringIndex].r);
+      Serial.print(", ");
+      Serial.print(colors[ringIndex].g);
+      Serial.print(", ");
+      Serial.println(colors[ringIndex].b);
+      Serial.println("-------------------");
+    }
   }
 }
 
-/*
-The setup() is where the code starts running
-
-In the setup all the initializations take place
-*/
 void setup() {
   Serial.begin(115200); // Initialization for Serial talk on the Baudrate 115200
   WiFi.mode(WIFI_STA);  // Initialization of the WiFi mode
 
-  // Adding all of the ledrings that are used
-  FastLED.addLeds<WS2812, redBike, GRB>(ledsrb, NUM_LEDS);
-  FastLED.addLeds<WS2812, orangeBike, GRB>(ledsob, NUM_LEDS);
-  FastLED.addLeds<WS2812, greenBike, GRB>(ledsgb, NUM_LEDS);
-  FastLED.addLeds<WS2812, redPedestrian, GRB>(ledsrp, NUM_LEDS);
-  FastLED.addLeds<WS2812, greenPedestrian, GRB>(ledsgp, NUM_LEDS);
+  // Adding all of the ledrings
+  FastLED.addLeds<WS2812, redBike, GRB>(ledRings[RED_BIKE], NUM_LEDS);
+  FastLED.addLeds<WS2812, orangeBike, GRB>(ledRings[ORANGE_BIKE], NUM_LEDS);
+  FastLED.addLeds<WS2812, greenBike, GRB>(ledRings[GREEN_BIKE], NUM_LEDS);
+  FastLED.addLeds<WS2812, redPedestrian, GRB>(ledRings[RED_PEDESTRIAN], NUM_LEDS);
+  FastLED.addLeds<WS2812, greenPedestrian, GRB>(ledRings[GREEN_PEDESTRIAN], NUM_LEDS);
 
-  // Making sure all of the LEDs are off at startup
+  // reset the LEDs on startup
   FastLED.clear();
   FastLED.show();
 
@@ -215,7 +177,7 @@ void setup() {
   pinMode(button, INPUT_PULLUP);
   pinMode(buttonLed, OUTPUT);
 
-  // Making sure the LED on the button is off after startup
+  // Making sure the LED on the button is off on startup
   digitalWrite(buttonLed, LOW);
 
   // Initialization proces for the WiFi
@@ -224,7 +186,7 @@ void setup() {
     return;
   }
 
-  // Making the functions which are called after sending and recieving data
+  // initializing sending and receiving functions
   esp_now_register_send_cb(OnDataSent);
   esp_now_register_recv_cb(OnDataRecv);
 
@@ -243,12 +205,20 @@ void setup() {
   }
 }
 
-/*
-In the loop the code is run which decides how the trafficlight should act
-*/
 void loop() {
-  checkButton();  // calling checkButton each loop to see if there are pedestrians who want to cross
+  checkButton();
   
+  if (DEBUG) {
+    if (millis() - startDebugTime > debugInterval) {
+      startDebugTime = millis();
+      Serial.println("-------------------");
+      Serial.print("Button state: ");
+      Serial.println(outgoingData.buttonState);
+      Serial.print("Current state: ");
+      Serial.println(outgoingData.state);
+      Serial.println("-------------------");
+    }
+  }
   /*
   The switch case exists of the different states the trafficlight can be in
 
@@ -258,103 +228,80 @@ void loop() {
   4 starts the blinking fase which tells the pedestrians the light will turn red soon
   5 the trafficlight starts blinking the green pedestrian light
   */
-  switch (state) {
+  switch (outgoingData.state) {
     case 1:
       if(!case1Initialized){
         startTime = millis(); // This resets the timer back to 0
-        changeLeds(green, 1);
-        changeLeds(red, 5);
-        changeLeds(blank, 2);
-        changeLeds(blank, 3);
-        changeLeds(blank, 4);
+        RGB_struct colors[5] = {red, off, off, off, green}; // Set the colors for the LED rings
+        changeLeds(colors);
         case1Initialized = true;
       }
 
-      // Going to state 2 after 25 seconds
-      if(millis() - startTime > 25000){
-        startTime = millis(); // This resets the timer back to 0
-        state = 2;
+      // enter state 2 after 25 seconds
+      if(millis() - startTime > case1Duration){
+        startTime = millis();
         outgoingData.state = 2;     
         case1Initialized = false;
       } 
       break;
 
     case 2:
-      if(millis() - startTime > 5000){
-        sendData(); // Telling the other esp32 it needs to enter state 2
-        changeLeds(red, 5);
-        changeLeds(orange, 2);
-        changeLeds(blank, 1);
-        changeLeds(blank, 3);
-        changeLeds(blank, 4);
+      if(millis() - startTime > case2Duration){
+        sendData(); // Telling the slave to change state
+        RGB_struct colors[5] = {off, orange, off, off, red};
+        changeLeds(colors);
 
-        // All of the changes to enter state 3
-        state = 3;
         outgoingData.state = 3;
         outgoingData.buttonState = 1;
-        startTime = millis(); // This resets the timer back to 0      
+        startTime = millis();
       }
       break;
 
     case 3:
-      if(millis() - startTime > 2000){
-        sendData(); // Telling the other esp32 to enter state 3
-        changeLeds(red, 3);
-        changeLeds(green, 4);
+      if(millis() - startTime > case3Duration){
+        sendData();
+        RGB_struct colors[5] = {off, off, red, green, off};
+        changeLeds(colors);
         digitalWrite(buttonLed, LOW);
-        changeLeds(blank, 1);
-        changeLeds(blank, 2);
-        changeLeds(blank, 5);
 
-        // All of the changes to enter state 4 
-        state = 4;
         outgoingData.state = 4;
-        startTime = millis(); // This resets the timer back to 0
+        startTime = millis();
       }
       break;
 
     case 4:
-      if(millis() - startTime > 10000){
+      if(millis() - startTime > case4Duration){
         if (!case4Initialized) {
-          sendData(); // Telling the other esp32 to enter state 4
+          sendData();
           case4Initialized = true;
         } 
-        changeLeds(red, 3);
-        changeLeds(blank, 1);
-        changeLeds(blank, 2);
-        changeLeds(blank, 4);
-        changeLeds(blank, 5);
+        RGB_struct colors[5] = {off, off, red, off, off};
+        changeLeds(colors);
       }
-      if(millis() - startTime > 10500){
-        // All of the changes to enter state 5
-        state = 5;
+      if(millis() - startTime > case5Duration){
         outgoingData.state = 5;
-        sendData(); // Telling the other esp32 to enter state 4
+        sendData();
         case4Initialized = false;
-        startTime = millis(); // This resets the timer back to 0
+        startTime = millis();
       }
       break;
     
     case 5:
       unsigned long elapsed = millis() - startTime;
-
-      /*
-      Makes the green pedestrian light blink 3 times
-      
-      The light turns off for 500 miliseconds and then on again for another 500 miliseconds
-      */
-      if (elapsed < 3000) {
-        if ((elapsed / 500) % 2 == 0) {
-          changeLeds(green, 4);
+      // for the next 3 seconds blink the green pedestrian light
+      if (elapsed < blinkingDuration) {
+        if ((elapsed / blinkingInterval) % 2 == 0) {
+          RGB_struct colors[5] = {off, off, red, green, off};
+          changeLeds(colors);
         } else {
-          changeLeds(blank, 4);
+          RGB_struct colors[5] = {off, off, red, off, off};
+          changeLeds(colors);
         }
       } else {
-        changeLeds(blank, 4);
-        // All of the changes to enter state 1
-        state = 1;
-        outgoingData.state = 1;
-        sendData(); // Telling the other esp32 to enter state 3
+        RGB_struct colors[5] = {off, off, red, off, off};
+        changeLeds(colors);
+        outgoingData.state = 1; // Reset to state 1 after blinking
+        sendData();
       }
       break;
   }

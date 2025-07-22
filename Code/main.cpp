@@ -8,7 +8,7 @@ Corné Noorlander
 Contribution of:
 Fabio Wolthuis
 Merel van der Leeden
-Jullian Bouman
+Julian Bouman
 */
 
 #include <FastLED.h>
@@ -265,7 +265,7 @@ void loop() {
         changeLeds(blank, 4);
         case1Initialized = true;
       }
-
+      
       // Going to state 2 after 25 seconds
       if(millis() - startTime > 25000){
         startTime = millis(); // This resets the timer back to 0
@@ -274,8 +274,8 @@ void loop() {
         case1Initialized = false;
       } 
       break;
-
-    case 2:
+      
+      case 2:
       if(millis() - startTime > 5000){
         sendData(); // Telling the other esp32 it needs to enter state 2
         changeLeds(red, 5);
@@ -283,7 +283,7 @@ void loop() {
         changeLeds(blank, 1);
         changeLeds(blank, 3);
         changeLeds(blank, 4);
-
+        
         // All of the changes to enter state 3
         state = 3;
         outgoingData.state = 3;
@@ -291,8 +291,8 @@ void loop() {
         startTime = millis(); // This resets the timer back to 0      
       }
       break;
-
-    case 3:
+      
+      case 3:
       if(millis() - startTime > 2000){
         sendData(); // Telling the other esp32 to enter state 3
         changeLeds(red, 3);
@@ -301,15 +301,15 @@ void loop() {
         changeLeds(blank, 1);
         changeLeds(blank, 2);
         changeLeds(blank, 5);
-
+        
         // All of the changes to enter state 4 
         state = 4;
         outgoingData.state = 4;
         startTime = millis(); // This resets the timer back to 0
       }
       break;
-
-    case 4:
+      
+      case 4:
       if(millis() - startTime > 10000){
         if (!case4Initialized) {
           sendData(); // Telling the other esp32 to enter state 4
@@ -330,18 +330,18 @@ void loop() {
         startTime = millis(); // This resets the timer back to 0
       }
       break;
-    
-    case 5:
+      
+      case 5:
       unsigned long elapsed = millis() - startTime;
-
+      
       /*
       Makes the green pedestrian light blink 3 times
       
       The light turns off for 500 miliseconds and then on again for another 500 miliseconds
       */
-      if (elapsed < 3000) {
-        if ((elapsed / 500) % 2 == 0) {
-          changeLeds(green, 4);
+     if (elapsed < 3000) {
+       if ((elapsed / 500) % 2 == 0) {
+         changeLeds(green, 4);
         } else {
           changeLeds(blank, 4);
         }
