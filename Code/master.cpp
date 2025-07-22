@@ -24,11 +24,11 @@ Julian Bouman
 #define buttonLed 25
 
 // led ring pins
-#define greenBike 14         // (3) on the trafficlight
-#define orangeBike 32        // (2) on the trafficlight
 #define redBike 13           // (1) on the trafficlight
-#define greenPedestrian 26   // (5) on the trafficlight
+#define orangeBike 32        // (2) on the trafficlight
+#define greenBike 14         // (3) on the trafficlight
 #define redPedestrian 27     // (4) on the trafficlight
+#define greenPedestrian 26   // (5) on the trafficlight
 
 // RGB ring amount of LEDs
 #define NUM_LEDS 16
@@ -112,7 +112,7 @@ void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
 // changes the state of the trafficlights and the button LED
 // using ArduinoIDE: (const uint8_t *mac_addr, const uint8_t *incomingDataBytes, int len)
 // using PlatformIO: (const esp_now_recv_info_t *recv_info, const uint8_t *incomingDataBytes, int len)
-void OnDataRecv(const esp_now_recv_info_t *recv_info, const uint8_t *incomingDataBytes, int len) {
+void OnDataRecv(const uint8_t *mac_addr, const uint8_t *incomingDataBytes, int len) {
   outgoingData.state = 2;
   digitalWrite(buttonLed, HIGH);  
   if (DEBUG) {
@@ -187,6 +187,7 @@ void setup() {
   }
 
   // initializing sending and receiving functions
+  // upload/compile error? go to OnDataRecv and change the parameters
   esp_now_register_send_cb(OnDataSent);
   esp_now_register_recv_cb(OnDataRecv);
 
@@ -232,7 +233,7 @@ void loop() {
     case 1:
       if(!case1Initialized){
         startTime = millis(); // This resets the timer back to 0
-        RGB_struct colors[5] = {red, off, off, off, green}; // Set the colors for the LED rings
+        RGB_struct colors[5] = {off, off, green, red, off}; // Set the colors for the LED rings
         changeLeds(colors);
         case1Initialized = true;
       }
@@ -248,7 +249,7 @@ void loop() {
     case 2:
       if(millis() - startTime > case2Duration){
         sendData(); // Telling the slave to change state
-        RGB_struct colors[5] = {off, orange, off, off, red};
+        RGB_struct colors[5] = {off, orange, off, red, off};
         changeLeds(colors);
 
         outgoingData.state = 3;
@@ -260,7 +261,7 @@ void loop() {
     case 3:
       if(millis() - startTime > case3Duration){
         sendData();
-        RGB_struct colors[5] = {off, off, red, green, off};
+        RGB_struct colors[5] = {red, off, off, off, green};
         changeLeds(colors);
         digitalWrite(buttonLed, LOW);
 
@@ -275,7 +276,7 @@ void loop() {
           sendData();
           case4Initialized = true;
         } 
-        RGB_struct colors[5] = {off, off, red, off, off};
+        RGB_struct colors[5] = {red, off, off, off, off};
         changeLeds(colors);
       }
       if(millis() - startTime > case5Duration){
@@ -291,14 +292,14 @@ void loop() {
       // for the next 3 seconds blink the green pedestrian light
       if (elapsed < blinkingDuration) {
         if ((elapsed / blinkingInterval) % 2 == 0) {
-          RGB_struct colors[5] = {off, off, red, green, off};
+          RGB_struct colors[5] = {red, off, off, off, green};
           changeLeds(colors);
         } else {
-          RGB_struct colors[5] = {off, off, red, off, off};
+          RGB_struct colors[5] = {red, off, off, off, off};
           changeLeds(colors);
         }
       } else {
-        RGB_struct colors[5] = {off, off, red, off, off};
+        RGB_struct colors[5] = {red, off, off, off, off};
         changeLeds(colors);
         outgoingData.state = 1; // Reset to state 1 after blinking
         sendData();

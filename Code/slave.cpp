@@ -24,11 +24,11 @@ Jullian Bouman
 #define buttonLed 25
 
 // led ring pins
-#define greenBike 14         // (3) on the trafficlight
-#define orangeBike 32        // (2) on the trafficlight
 #define redBike 13           // (1) on the trafficlight
-#define greenPedestrian 26   // (5) on the trafficlight
+#define orangeBike 32        // (2) on the trafficlight
+#define greenBike 14         // (3) on the trafficlight
 #define redPedestrian 27     // (4) on the trafficlight
+#define greenPedestrian 26   // (5) on the trafficlight
 
 // RGB ring amount of LEDs
 #define NUM_LEDS 16
@@ -173,7 +173,8 @@ void setup() {
     return;
   }
 
-  // Making the functions which are called after sending and recieving data
+  // initializing sending and receiving functions
+  // upload/compile error? go to OnDataRecv and change the parameters
   esp_now_register_send_cb(OnDataSent);
   esp_now_register_recv_cb(OnDataRecv);
 
@@ -219,7 +220,7 @@ void loop() {
   switch (incomingData.state) {
     case 1:
       if(!case1Initialized){
-        RGB_struct colors[5] = {red, off, off, off, green}; // Set the colors for the LED rings
+        RGB_struct colors[5] = {off, off, green, red, off}; // Set the colors for the LED rings
         changeLeds(colors);
         case5Initialized = false;
         case1Initialized = true; 
@@ -228,7 +229,7 @@ void loop() {
 
     case 2:
       if(!case2Initialized){
-        RGB_struct colors[5] = {red, off, off, off, green}; // Set the colors for the LED rings
+        RGB_struct colors[5] = {off, orange, off, red, off}; // Set the colors for the LED rings
         changeLeds(colors);
         case1Initialized = false;    
         case2Initialized = true;
@@ -247,7 +248,7 @@ void loop() {
 
     case 4:
       if(!case4Initialized){
-        RGB_struct colors[5] = {red, off, off, off, green}; // Set the colors for the LED rings
+        RGB_struct colors[5] = {red, off, off, off, off}; // Set the colors for the LED rings
         changeLeds(colors);
         case3Initialized = false;
         case4Initialized = true; 
@@ -269,14 +270,14 @@ void loop() {
       */
       if (elapsed < 3000) {
         if ((elapsed / 500) % 2 == 0) {
-          RGB_struct colors[5] = {red, off, off, off, green}; // Set the colors for the LED rings
+          RGB_struct colors[5] = {red, off, off, off, green};
         changeLeds(colors);
         } else {
-          RGB_struct colors[5] = {red, off, off, off, green}; // Set the colors for the LED rings
+          RGB_struct colors[5] = {red, off, off, off, off};
         changeLeds(colors);
         }
       } else {
-        RGB_struct colors[5] = {red, off, off, off, green}; // Set the colors for the LED rings
+        RGB_struct colors[5] = {red, off, off, off, off};
         changeLeds(colors);
       }
       break;
