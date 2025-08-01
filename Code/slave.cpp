@@ -1,6 +1,7 @@
 /*
-This is the code for the esp32 which acts as the MASTER 
-This code decides when the lights change and instructs the other esp32
+This is the code for the esp32 which acts as the slave
+This code acts on the calls of the master
+The only thing this code sends back to the master is when the pedestrian button has been pressed
 
 Written by:
 Corné Noorlander
@@ -8,9 +9,8 @@ Corné Noorlander
 Contribution of:
 Fabio Wolthuis
 Merel van der Leeden
-Julian Bouman
+Jullian Bouman
 */
-
 #include <FastLED.h>
 #include <Arduino.h>
 #include <esp_now.h>
@@ -24,28 +24,28 @@ Julian Bouman
 #define buttonLed 25
 
 // led ring pins
-#define greenBike 14         // (3) on the trafficlight
-#define orangeBike 32        // (2) on the trafficlight
 #define redBike 13           // (1) on the trafficlight
-#define greenPedestrian 26   // (5) on the trafficlight
+#define orangeBike 32        // (2) on the trafficlight
+#define greenBike 14         // (3) on the trafficlight
 #define redPedestrian 27     // (4) on the trafficlight
+#define greenPedestrian 26   // (5) on the trafficlight
 
 // RGB ring amount of LEDs
 #define NUM_LEDS 16
 
-// MAC address of the Slave ESP32
-static uint8_t peerAddress[] = {0xc8, 0xf0, 0x9e, 0xf3, 0xde, 0x24};
+// MAC address of the Master ESP32
+uint8_t peerAddress[] = {0x68, 0x25, 0xdd, 0xee, 0xd2, 0x84};
 
 // struct for the outgoing data
 // state is also used as global variable to keep track of the traffic light state
 struct struct_outgoing {
   bool buttonState;
-  int state;
 };
 
 // struct for the incoming data
 struct struct_incoming {
   bool buttonState;
+  int state;
 };
 
 // struct to store RGB values
@@ -57,7 +57,7 @@ struct RGB_struct{
 
 // variables for messaging the other esp32
 struct_incoming incomingData;
-struct_outgoing outgoingData = {1, 1};
+struct_outgoing outgoingData = {0};
 
 // setup the individual LED rings
 CRGB ledRings[5][NUM_LEDS];
@@ -80,43 +80,33 @@ bool currentState;
 bool previousState = 1;
 
 // variables to keep track of initialization of case 1 and 4
-bool case1Initialized;
-bool case4Initialized;
+bool case1Initialized = false;
+bool case2Initialized = false;
+bool case3Initialized = false;
+bool case4Initialized = false;
+bool case5Initialized = false;
 
-// variables for the timer and timings
+// variable for the timer
 unsigned long startTime = 0;
-unsigned long case1Duration = 25000;    // 25 seconds
-unsigned long case2Duration = 5000;     // 5 seconds
-unsigned long case3Duration = 2000;     // 2 seconds
-unsigned long case4Duration = 10000;    // 10 seconds
-unsigned long case5Duration = 10500;    // 10.5 seconds
-unsigned long blinkingDuration = 3000; // 3 seconds for blinking
-unsigned long blinkingInterval = 500; // 0.5 seconds for each blink
 unsigned long startDebugTime = 0;
 unsigned long debugInterval = 1000; // print every second in the loop
 
-// function to send button state and traffic light state to the other esp32
-void sendData(){
-  esp_now_send(peerAddress, (uint8_t *)&outgoingData, sizeof(outgoingData));
-}
-
 // function to be called after sending data that prints the status of the last sent packet
 void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
-  if (DEBUG) {
-    Serial.print("Last Packet Send Status: ");
-    Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail");
-  }
+  Serial.print("Last Packet Send Status: ");
+  Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail");
 }
 
 // function to be called when data is received from the other esp32
 // changes the state of the trafficlights and the button LED
 // using ArduinoIDE: (const uint8_t *mac_addr, const uint8_t *incomingDataBytes, int len)
 // using PlatformIO: (const esp_now_recv_info_t *recv_info, const uint8_t *incomingDataBytes, int len)
-void OnDataRecv(const esp_now_recv_info_t *recv_info, const uint8_t *incomingDataBytes, int len) {
-  outgoingData.state = 2;
-  digitalWrite(buttonLed, HIGH);  
-  if (DEBUG) {
-    Serial.println("Data received from slave");
+void OnDataRecv(const uint8_t *mac_addr, const uint8_t *incomingDataBytes, int len) {
+  if (len == sizeof(struct_incoming)) {
+    memcpy(&incomingData, incomingDataBytes, sizeof(incomingData));
+    if (incomingData.buttonState == 0) {
+      digitalWrite(buttonLed, HIGH);
+    }
   }
 }
 
@@ -125,13 +115,10 @@ void OnDataRecv(const esp_now_recv_info_t *recv_info, const uint8_t *incomingDat
 // also sends the data to the other esp32
 void checkButton(){
   currentState = digitalRead(button);
-
-  if(previousState != currentState && outgoingData.state == 1){
+  if(previousState != currentState && incomingData.state == 1){
     previousState = currentState;
-    outgoingData.buttonState = 0;
-    outgoingData.state = 2;
-    sendData();
     digitalWrite(buttonLed, HIGH);
+    esp_now_send(peerAddress, (uint8_t *)&outgoingData, sizeof(outgoingData));
   }
 }
 
@@ -162,22 +149,22 @@ void setup() {
   Serial.begin(115200); // Initialization for Serial talk on the Baudrate 115200
   WiFi.mode(WIFI_STA);  // Initialization of the WiFi mode
 
-  // Adding all of the ledrings
+  // Adding all of the ledrings that are used
   FastLED.addLeds<WS2812, redBike, GRB>(ledRings[RED_BIKE], NUM_LEDS);
   FastLED.addLeds<WS2812, orangeBike, GRB>(ledRings[ORANGE_BIKE], NUM_LEDS);
   FastLED.addLeds<WS2812, greenBike, GRB>(ledRings[GREEN_BIKE], NUM_LEDS);
   FastLED.addLeds<WS2812, redPedestrian, GRB>(ledRings[RED_PEDESTRIAN], NUM_LEDS);
   FastLED.addLeds<WS2812, greenPedestrian, GRB>(ledRings[GREEN_PEDESTRIAN], NUM_LEDS);
-
-  // reset the LEDs on startup
+  
+  // Making sure all of the LEDs are off at startup
   FastLED.clear();
   FastLED.show();
 
   // Initializing the pins of the button and its LED
   pinMode(button, INPUT_PULLUP);
   pinMode(buttonLed, OUTPUT);
-
-  // Making sure the LED on the button is off on startup
+  
+  // Making sure the LED on the button is off after startup
   digitalWrite(buttonLed, LOW);
 
   // Initialization proces for the WiFi
@@ -187,6 +174,7 @@ void setup() {
   }
 
   // initializing sending and receiving functions
+  // upload/compile error? go to OnDataRecv and change the parameters
   esp_now_register_send_cb(OnDataSent);
   esp_now_register_recv_cb(OnDataRecv);
 
@@ -207,18 +195,19 @@ void setup() {
 
 void loop() {
   checkButton();
-  
+
   if (DEBUG) {
     if (millis() - startDebugTime > debugInterval) {
       startDebugTime = millis();
       Serial.println("-------------------");
       Serial.print("Button state: ");
-      Serial.println(outgoingData.buttonState);
+      Serial.println(incomingData.buttonState);
       Serial.print("Current state: ");
-      Serial.println(outgoingData.state);
+      Serial.println(incomingData.state);
       Serial.println("-------------------");
     }
   }
+  
   /*
   The switch case exists of the different states the trafficlight can be in
 
@@ -228,80 +217,68 @@ void loop() {
   4 starts the blinking fase which tells the pedestrians the light will turn red soon
   5 the trafficlight starts blinking the green pedestrian light
   */
-  switch (outgoingData.state) {
+  switch (incomingData.state) {
     case 1:
       if(!case1Initialized){
-        startTime = millis(); // This resets the timer back to 0
-        RGB_struct colors[5] = {red, off, off, off, green}; // Set the colors for the LED rings
+        RGB_struct colors[5] = {off, off, green, red, off}; // Set the colors for the LED rings
         changeLeds(colors);
-        case1Initialized = true;
-      }
-
-      // enter state 2 after 25 seconds
-      if(millis() - startTime > case1Duration){
-        startTime = millis();
-        outgoingData.state = 2;     
-        case1Initialized = false;
+        case5Initialized = false;
+        case1Initialized = true; 
       } 
       break;
 
     case 2:
-      if(millis() - startTime > case2Duration){
-        sendData(); // Telling the slave to change state
-        RGB_struct colors[5] = {off, orange, off, off, red};
+      if(!case2Initialized){
+        RGB_struct colors[5] = {off, orange, off, red, off}; // Set the colors for the LED rings
         changeLeds(colors);
-
-        outgoingData.state = 3;
-        outgoingData.buttonState = 1;
-        startTime = millis();
+        case1Initialized = false;    
+        case2Initialized = true;
       }
       break;
 
     case 3:
-      if(millis() - startTime > case3Duration){
-        sendData();
-        RGB_struct colors[5] = {off, off, red, green, off};
+      if(!case3Initialized){
+        RGB_struct colors[5] = {red, off, off, off, green}; // Set the colors for the LED rings
         changeLeds(colors);
         digitalWrite(buttonLed, LOW);
-
-        outgoingData.state = 4;
-        startTime = millis();
-      }
+        case2Initialized = false;
+        case3Initialized = true; 
+      }    
       break;
 
     case 4:
-      if(millis() - startTime > case4Duration){
-        if (!case4Initialized) {
-          sendData();
-          case4Initialized = true;
-        } 
-        RGB_struct colors[5] = {off, off, red, off, off};
+      if(!case4Initialized){
+        RGB_struct colors[5] = {red, off, off, off, off}; // Set the colors for the LED rings
         changeLeds(colors);
-      }
-      if(millis() - startTime > case5Duration){
-        outgoingData.state = 5;
-        sendData();
-        case4Initialized = false;
-        startTime = millis();
+        case3Initialized = false;
+        case4Initialized = true; 
       }
       break;
     
     case 5:
+      if (!case5Initialized) {
+        startTime = millis(); // This resets the timer back to 0
+        case4Initialized = false;
+        case5Initialized = true;
+      }
       unsigned long elapsed = millis() - startTime;
-      // for the next 3 seconds blink the green pedestrian light
-      if (elapsed < blinkingDuration) {
-        if ((elapsed / blinkingInterval) % 2 == 0) {
-          RGB_struct colors[5] = {off, off, red, green, off};
-          changeLeds(colors);
+      
+      /*
+      Makes the green pedestrian light blink 3 times
+      
+      The light turns off for 500 miliseconds and then on again for another 500 miliseconds
+      */
+      if (elapsed < 3000) {
+        if ((elapsed / 500) % 2 == 0) {
+          RGB_struct colors[5] = {red, off, off, off, green};
+        changeLeds(colors);
         } else {
-          RGB_struct colors[5] = {off, off, red, off, off};
-          changeLeds(colors);
+          RGB_struct colors[5] = {red, off, off, off, off};
+        changeLeds(colors);
         }
       } else {
-        RGB_struct colors[5] = {off, off, red, off, off};
+        RGB_struct colors[5] = {red, off, off, off, off};
         changeLeds(colors);
-        outgoingData.state = 1; // Reset to state 1 after blinking
-        sendData();
       }
       break;
   }
